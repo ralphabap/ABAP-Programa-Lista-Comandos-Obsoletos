@@ -1,0 +1,1062 @@
+* --------------------------------------
+* ELEMENTOS DE TEXTO - TEXTO DE SELEÇÃO
+* --------------------------------------
+* P_SCII	SCII
+* P_SLIN	Comandos Obsoletos
+* P_VARIA	Layout
+* SO_CLASS	BADI / Classes
+* SO_EXIT	Exit
+* SO_FUGR	Grupo de Função
+* SO_PGM	Programas / WorkFlow
+* --------------------------------------
+
+* --------------------------------------
+* ELEMENTOS DE TEXTO - SIMBOLOS DE TEXTO
+* --------------------------------------
+* 001	Clicar em linha válida
+* 002	Variante
+* T01	Filtro de seleção
+* T02	Layout ALV
+* T03	Opções de Processamento
+* --------------------------------------
+
+*&---------------------------------------------------------------------*
+*& Report  ZDSF_MAPA_UPGRADE
+*&---------------------------------------------------------------------*
+REPORT zdsf_mapa_upgrade NO STANDARD PAGE HEADING.
+
+*----------------------------------------------------------------------*
+* Á R E A S   D E   T R A B A L H O                                    *
+*----------------------------------------------------------------------*
+TABLES:
+  tadir,
+  trdir.
+
+
+*----------------------------------------------------------------------*
+* Tipos standard                                                       *
+*                                                                      *
+* O conjunto de tipos VRM e SLIS são utilizados por funções ALV. Defina*
+* sempre no início. O mais importante mesmo é o SLIS.                  *
+*----------------------------------------------------------------------*
+TYPE-POOLS:
+  vrm,                                    "Necessário para uso de ALV
+  kkblo,
+  slis.                                   "Tipos globais para ALV
+
+
+*----------------------------------------------------------------------*
+* UTILIZADOS PARA DEFINIR COR NO ALV                                   *
+*----------------------------------------------------------------------*
+CLASS cl_gui_resources DEFINITION LOAD.
+
+
+*----------------------------------------------------------------------*
+* T I P O S                                                            *
+*----------------------------------------------------------------------*
+TYPES:
+  BEGIN OF y_report,
+    source(300) TYPE c,
+  END OF y_report,
+
+  BEGIN OF y_log,
+    tipo         TYPE trobjtype,
+    objeto       TYPE sobj_name,
+    comando(300) TYPE c,
+    linha        TYPE char10,
+    cont         TYPE int4,
+    prog         TYPE int4,
+  END OF y_log,
+
+*** Estrutura para exit
+  BEGIN OF y_modsap,
+    name   TYPE modsap-name,
+    member TYPE modsap-member,
+  END OF y_modsap,
+
+*** Verificar se as exits estão ativas
+  BEGIN OF y_tfdir,
+    funcname TYPE tfdir-funcname,
+    pname    TYPE tfdir-pname,
+    mand     TYPE tfdir-mand,
+  END OF y_tfdir,
+
+*** Localizar os componentes de um projeto CMOD
+  BEGIN OF y_modact,
+    name   TYPE modact-name,
+    member TYPE modact-member,
+  END OF y_modact.
+
+*----------------------------------------------------------------------*
+* T A B E L A S   I N T E R N A S                                      *
+*----------------------------------------------------------------------*
+DATA:
+      gw_log       TYPE STANDARD TABLE OF y_log,
+      gw_obsoletos TYPE STANDARD TABLE OF ztb_obsoletos,
+      gw_tadir     TYPE STANDARD TABLE OF tadir,
+      gw_trdir     TYPE STANDARD TABLE OF trdir,
+
+* ALV
+      gw_listheader TYPE slis_t_listheader,
+      gw_fieldcat   TYPE slis_t_fieldcat_alv   WITH HEADER LINE,
+      gw_sort       TYPE slis_sortinfo_alv
+        OCCURS 0 WITH HEADER LINE.
+
+
+*----------------------------------------------------------------------*
+* V A R I Á V E I S   L I N H A   D E   T A B E L A                    *
+*----------------------------------------------------------------------*
+*DATA:
+*      gs_log       LIKE LINE OF gw_log,
+*      gs_obsoletos LIKE LINE OF gw_obsoletos,
+*      gs_tadir     LIKE LINE OF gw_tadir,
+*      gs_trdir     LIKE LINE OF gw_trdir.
+
+* ALV
+DATA: gs_listheader TYPE slis_listheader,    "Cabeçalho
+      gs_trdir      TYPE trdir,              "Includes de objetos
+      gs_layout     TYPE slis_layout_alv,    "layout para saída
+      gs_print      TYPE slis_print_alv,     "Ctrl de impressão
+      gs_variante   LIKE disvariant.         "Variante de exibição
+
+*----------------------------------------------------------------------*
+* V A R I Á V E I S   G L O B A I S                                    *
+*----------------------------------------------------------------------*
+DATA:
+      gc_repid TYPE sy-repid.
+
+
+*----------------------------------------------------------------------*
+* T E L A   D E   S E L E Ç Ã O                                        *
+*----------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b01 WITH FRAME TITLE text-t01.
+SELECT-OPTIONS so_class FOR tadir-obj_name.
+SELECT-OPTIONS so_exit  FOR tadir-obj_name.
+SELECT-OPTIONS so_fugr  FOR tadir-obj_name.
+SELECT-OPTIONS so_pgm   FOR tadir-obj_name.
+SELECTION-SCREEN END OF BLOCK b01.
+
+SELECTION-SCREEN BEGIN OF BLOCK b03 WITH FRAME TITLE text-t03.
+PARAMETERS: p_slin TYPE c RADIOBUTTON GROUP gr1 DEFAULT 'X',
+            p_scii TYPE c RADIOBUTTON GROUP gr1.
+SELECTION-SCREEN END OF BLOCK b03.
+
+SELECTION-SCREEN BEGIN OF BLOCK b02 WITH FRAME TITLE text-t02.
+PARAMETERS: p_varia TYPE disvariant-variant.
+SELECTION-SCREEN END OF BLOCK b02.
+
+*----------------------------------------------------------------------*
+* Eventos                                                              *
+*----------------------------------------------------------------------*
+INITIALIZATION.
+  PERFORM zf_init_alv.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_varia.
+  PERFORM zf_recupera_layouts_salvos.
+
+*----------------------------------------------------------------------*
+* P R O C E S S A M E N T O   P R I N C I P A L                        *
+*----------------------------------------------------------------------*
+START-OF-SELECTION.
+
+*** Localizar objetos
+  PERFORM zf_obter_objetos.
+
+*** Exbir relatório
+  PERFORM zf_imprimir_analise.
+
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_OBTER_OBJETOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_obter_objetos .
+
+*** Loczalizar Programas
+  PERFORM zf_obter_programas.
+
+  IF NOT p_slin IS INITIAL.
+    PERFORM zf_analisar_objetos USING 'PROG'.
+  ELSE.
+    PERFORM zf_incluir_objetos_request.
+  ENDIF.
+
+*** Localizar Funções
+  PERFORM zf_obter_funcoes.
+
+  IF NOT p_slin IS INITIAL.
+    PERFORM zf_analisar_objetos USING 'FUGR'.
+  ENDIF.
+
+*** Localizar Classes
+  PERFORM zf_obter_classes.
+
+  IF NOT p_slin IS INITIAL.
+    PERFORM zf_analisar_objetos USING 'CLAS'.
+  ENDIF.
+
+*** Localizar Exit
+  PERFORM zf_obter_exit.
+
+  IF NOT p_slin IS INITIAL.
+    PERFORM zf_analisar_objetos USING 'EXIT'.
+  ENDIF.
+
+ENDFORM.                    " ZF_OBTER_OBJETOS
+
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_ANALISAR_OBJETOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_analisar_objetos USING tipo TYPE trobjtype.
+
+  FIELD-SYMBOLS: <trdir>     TYPE trdir,
+                 <linha>     TYPE y_report,
+                 <comando>   TYPE ztb_obsoletos-comando01,
+                 <obsoletos> TYPE ztb_obsoletos.
+
+  DATA: gw_source     TYPE STANDARD TABLE OF y_report.
+  DATA: ls_source     LIKE LINE OF gw_source.
+  DATA: li_tabix      TYPE char10.
+  DATA: ls_log        LIKE LINE OF gw_log.
+  DATA: lw_comandos   TYPE STANDARD TABLE OF sstmnt.
+  DATA: lw_obsoletos  TYPE STANDARD TABLE OF ztb_obsoletos-comando01.
+  DATA: lc_comando    TYPE char30.
+  DATA: ln_index(2)   TYPE n.
+  DATA: lc_flag       TYPE char1.
+  DATA: li_cont       TYPE int4.
+
+  IF NOT gw_trdir[] IS INITIAL AND gw_obsoletos[] IS INITIAL.
+
+    PERFORM zf_ler_obsoletos.
+
+  ENDIF.
+
+  LOOP AT gw_trdir ASSIGNING <trdir>.
+
+*** Contador para evitar timeout
+    li_cont = li_cont + 1.
+
+    IF li_cont = 120.
+
+      CLEAR li_cont.
+      CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+           EXPORTING
+                percentage = 45
+                text       = 'Processando . . . '.
+
+    ENDIF.
+
+*** Indica programa novo
+    ls_log-prog = 1.
+
+*** Ler Código fonte
+    PERFORM zf_ler_report TABLES gw_source USING <trdir>-name.
+
+    LOOP AT gw_source ASSIGNING <linha>.
+
+      li_tabix = sy-tabix.
+
+***   Se não for linha de comentário
+      CHECK ( <linha>+0(1) <> '*' ) AND ( NOT <linha> IS INITIAL ).
+
+      LOOP AT gw_obsoletos ASSIGNING <obsoletos>.
+
+        lc_flag = 'X'.
+        DO 10 TIMES.
+
+***       Buscar comando a ser localizado
+          CLEAR lc_comando.
+          ln_index = sy-index.
+          CONCATENATE '<OBSOLETOS>-COMANDO' ln_index INTO lc_comando.
+
+          ASSIGN (lc_comando) TO <comando>.
+
+          CHECK sy-subrc = 0.
+
+***       Verificar se existe informação para localizar
+          IF <comando> IS INITIAL.
+            EXIT.
+          ENDIF.
+
+***       Converter para maisculo
+          TRANSLATE <linha> TO UPPER CASE.
+
+
+***       Verificar texto
+          SEARCH <linha> FOR <comando>.
+
+***       Se encontrou o texto
+          IF sy-subrc <> 0.
+            CLEAR: lc_flag,
+                   ls_log-comando.
+            EXIT.
+          ELSE.
+***         Concatenar comando utilizado
+            CONCATENATE    ls_log-comando
+                           <comando>
+              INTO         ls_log-comando
+              SEPARATED BY space.
+          ENDIF.
+
+        ENDDO.
+
+***     Se encontrou os valores parametrizados
+        CHECK NOT lc_flag IS INITIAL.
+
+        ls_log-tipo    = tipo.
+        ls_log-objeto  = <trdir>-name.
+        ls_log-linha   = li_tabix.
+        ls_log-cont    = 1.
+        APPEND ls_log TO gw_log.
+        CLEAR  ls_log.
+
+        EXIT.
+
+      ENDLOOP.
+
+    ENDLOOP.
+
+  ENDLOOP.
+
+ENDFORM.                    " ZF_ANALISAR_OBJETOS
+
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_IMPRIMIR_ANALISE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_imprimir_analise .
+
+  CHECK NOT p_slin IS INITIAL.
+
+  PERFORM zf_monta_alv.
+  PERFORM zf_sort_subtotal.
+  PERFORM zf_executa_alv.
+
+ENDFORM.                    " ZF_IMPRIMIR_ANALISE
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_OBTER_PROGRAMAS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_obter_programas .
+
+  DATA: r_devclass    TYPE RANGE OF devclass,
+        ls_r_devclass LIKE LINE OF r_devclass.
+
+  DATA: r_prog    TYPE RANGE OF progname,
+        ls_r_prog LIKE LINE OF r_prog.
+
+* Filtrar pacotes
+  ls_r_devclass-option = 'CP'.
+  ls_r_devclass-sign   = 'I'.
+  ls_r_devclass-low    = 'Z*'.
+  APPEND ls_r_devclass TO r_devclass. CLEAR ls_r_devclass.
+
+  ls_r_devclass-option = 'CP'.
+  ls_r_devclass-sign   = 'I'.
+  ls_r_devclass-low    = 'Y*'.
+  APPEND ls_r_devclass TO r_devclass. CLEAR ls_r_devclass.
+
+* Filtrar programas
+  ls_r_prog-option = 'CP'.
+  ls_r_prog-sign   = 'I'.
+  ls_r_prog-low    = 'SAPMY*'.
+  APPEND ls_r_prog TO r_prog. CLEAR ls_r_prog.
+
+  ls_r_prog-option = 'CP'.
+  ls_r_prog-sign   = 'I'.
+  ls_r_prog-low    = 'SAPMZ*'.
+  APPEND ls_r_prog TO r_prog. CLEAR ls_r_prog.
+
+  ls_r_prog-option = 'CP'.
+  ls_r_prog-sign   = 'I'.
+  ls_r_prog-low    = 'SAPDBZ*'.
+  APPEND ls_r_prog TO r_prog. CLEAR ls_r_prog.
+
+  ls_r_prog-option = 'CP'.
+  ls_r_prog-sign   = 'I'.
+  ls_r_prog-low    = 'SAPDBY*'.
+  APPEND ls_r_prog TO r_prog. CLEAR ls_r_prog.
+
+  ls_r_prog-option = 'CP'.
+  ls_r_prog-sign   = 'I'.
+  ls_r_prog-low    = 'Y*'.
+  APPEND ls_r_prog TO r_prog. CLEAR ls_r_prog.
+
+  ls_r_prog-option = 'CP'.
+  ls_r_prog-sign   = 'I'.
+  ls_r_prog-low    = 'Z*'.
+  APPEND ls_r_prog TO r_prog. CLEAR ls_r_prog.
+
+* Inicializar variaveis
+  REFRESH: gw_tadir,
+           gw_trdir.
+
+* Selecionando objetos criados pelo cliente.
+  SELECT *
+  INTO TABLE gw_tadir
+  FROM tadir
+  WHERE pgmid    <> ''     AND
+        object   =  'PROG' AND
+        obj_name IN r_prog AND
+        obj_name IN so_pgm AND
+        devclass IN r_devclass.
+
+  IF sy-subrc = 0.
+
+*   Classifica os objetos
+    SORT gw_tadir STABLE.
+
+    SELECT *
+    INTO TABLE gw_trdir
+    FROM trdir
+    FOR ALL ENTRIES IN gw_tadir
+    WHERE name = gw_tadir-obj_name.
+
+*   Classifica os objetos
+    IF sy-subrc = 0.
+
+      SORT gw_trdir STABLE.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " ZF_OBTER_PROGRAMAS
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_LER_REPORT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_SOURCE  text
+*----------------------------------------------------------------------*
+FORM zf_ler_report TABLES source
+                   USING  programa TYPE progname.
+
+*  data: li_size type i.
+
+  READ REPORT programa INTO source." maximum width into li_size.
+
+ENDFORM.                    " ZF_LER_REPORT
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_LER_OBSOLETOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_ler_obsoletos .
+
+  SELECT *
+    INTO TABLE gw_obsoletos
+    FROM ztb_obsoletos.
+
+ENDFORM.                    " ZF_LER_OBSOLETOS
+
+*----------------------------------------------------------------------*
+*       Form  zf_init_alv                                              *
+*----------------------------------------------------------------------*
+*       Busca layout de exibição default para o relatório. Se houver   *
+*       algum formato padrão para o relatório, essa função busca e já  *
+*       apresenta o relatório nesse formato.                           *
+*       Um layout fica como default quando marcamos "Config.Prelim." Um*
+*       flag que pode ser marcado na opção "Gravar layout" na barra de *
+*       ferramentas do ALV                                             *
+*----------------------------------------------------------------------*
+FORM zf_init_alv.
+
+  gc_repid = sy-repid.
+  CLEAR gs_variante.
+  gs_variante-report = gc_repid.
+  CALL FUNCTION 'REUSE_ALV_VARIANT_DEFAULT_GET'
+       EXPORTING
+            i_save     = 'A'
+       CHANGING
+            cs_variant = gs_variante
+       EXCEPTIONS
+            not_found  = 2.
+  IF sy-subrc = 0.
+    p_varia = gs_variante.
+  ENDIF.
+
+ENDFORM.                    "zf_init_alv
+
+*----------------------------------------------------------------------*
+*       Form  zf_recupera_layouts_salvos                               *
+*----------------------------------------------------------------------*
+*       Abre um search help com os layouts já gravados. Se o usuário   *
+*       escolher algum aqui, o programa vai iniciar a apresentação do  *
+*       relatório com esse layout, e não o que é default, retornado na *
+*       função REUSE_ALV_VARIANT_DEFAULT_GET em ZF_INIT_ALV (Acima)    *
+*----------------------------------------------------------------------*
+FORM zf_recupera_layouts_salvos.
+
+  gs_variante-report = gc_repid.
+  CALL FUNCTION 'REUSE_ALV_VARIANT_F4'
+       EXPORTING
+            is_variant = gs_variante
+            i_save     = 'A'
+       IMPORTING
+            es_variant = gs_variante
+       EXCEPTIONS
+            not_found  = 2.
+  IF sy-subrc = 2.
+    MESSAGE ID sy-msgid TYPE 'S' NUMBER sy-msgno
+    WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ELSE.
+    p_varia = gs_variante-variant.
+  ENDIF.
+
+ENDFORM.                    "zf_recupera_layouts_salvos
+*&---------------------------------------------------------------------*
+*&      Form  ZF_MONTA_ALV
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_monta_alv .
+
+  gw_fieldcat-fieldname     = 'TIPO'.
+  gw_fieldcat-tabname       = 'GW_LOG'.
+  gw_fieldcat-reptext_ddic  = 'TIPO'.
+  gw_fieldcat-inttype       = 'C'.
+  gw_fieldcat-outputlen     = 4.
+  gw_fieldcat-checkbox      = ' '.
+  APPEND gw_fieldcat. CLEAR gw_fieldcat.
+
+  gw_fieldcat-fieldname     = 'OBJETO'.
+  gw_fieldcat-tabname       = 'GW_LOG'.
+  gw_fieldcat-reptext_ddic  = 'OBJETO'.
+  gw_fieldcat-inttype       = 'C'.
+  gw_fieldcat-outputlen     = 40.
+  gw_fieldcat-checkbox      = ' '.
+  APPEND gw_fieldcat. CLEAR gw_fieldcat.
+
+  gw_fieldcat-fieldname     = 'COMANDO'.
+  gw_fieldcat-tabname       = 'GW_LOG'.
+  gw_fieldcat-reptext_ddic  = 'COMANDO'.
+  gw_fieldcat-inttype       = 'C'.
+  gw_fieldcat-outputlen     = 120.
+  gw_fieldcat-checkbox      = ' '.
+  APPEND gw_fieldcat. CLEAR gw_fieldcat.
+
+  gw_fieldcat-fieldname     = 'LINHA'.
+  gw_fieldcat-tabname       = 'GW_LOG'.
+  gw_fieldcat-reptext_ddic  = 'LINHA'.
+  gw_fieldcat-inttype       = 'I'.
+  gw_fieldcat-outputlen     = 10.
+  gw_fieldcat-checkbox      = ' '.
+  APPEND gw_fieldcat. CLEAR gw_fieldcat.
+
+  gw_fieldcat-fieldname     = 'PROG'.
+  gw_fieldcat-tabname       = 'GW_LOG'.
+  gw_fieldcat-reptext_ddic  = 'QTDE OBJETOS'.
+  gw_fieldcat-no_zero       = 'X'.
+  gw_fieldcat-inttype       = 'I'.
+  gw_fieldcat-outputlen     = 10.
+  gw_fieldcat-checkbox      = ' '.
+  APPEND gw_fieldcat. CLEAR gw_fieldcat.
+
+  gw_fieldcat-fieldname     = 'CONT'.
+  gw_fieldcat-tabname       = 'GW_LOG'.
+  gw_fieldcat-reptext_ddic  = 'QTDE OCORRÊNCIAS'.
+  gw_fieldcat-inttype       = 'I'.
+  gw_fieldcat-outputlen     = 10.
+  gw_fieldcat-checkbox      = ' '.
+  APPEND gw_fieldcat. CLEAR gw_fieldcat.
+
+ENDFORM.                    " ZF_MONTA_ALV
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_SORT_SUBTOTAL
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_sort_subtotal .
+
+  CLEAR gw_sort[].
+  gw_sort-spos      = 1.
+  gw_sort-fieldname = 'TIPO'.
+  gw_sort-tabname   = 'GW_LOG'.
+  gw_sort-up        = 'X'.
+  gw_sort-subtot    = ' '.
+  APPEND gw_sort.
+
+  gw_sort-spos      = 2.
+  gw_sort-fieldname = 'OBJETO'.
+  gw_sort-tabname   = 'GW_LOG'.
+  gw_sort-up        = 'X'.
+  gw_sort-subtot    = ' '.
+  APPEND gw_sort.
+
+*  gw_sort-spos      = 3.
+*  gw_sort-fieldname = 'COMANDO'.
+*  gw_sort-tabname   = 'GW_LOG'.
+*  gw_sort-UP        = 'X'.
+*  gw_sort-subtot    = ' '.
+*  APPEND gw_sort.
+
+ENDFORM.                    " ZF_SORT_SUBTOTAL
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_EXECUTA_ALV
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_executa_alv .
+
+* Preenchendo algumas opções de impressão (Não é obrigatório)
+  gs_layout-expand_all        = 'X'.  "Abrir subitens
+  gs_layout-colwidth_optimize = 'X'.  "Largura melhor possível da coluna
+  gs_layout-edit              = ' '.  "Permitir a edição
+  gs_layout-zebra             = 'X'.
+*  gs_layout-coltab_fieldname  = 'COLINFO'.
+
+
+* Indicando para função qual o layout que deve ser apresentado
+* primeiro
+
+  gs_variante-variant         = p_varia.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+  EXPORTING
+    i_callback_program       = gc_repid
+    i_background_id          = 'ALV_BACKGROUND'
+*    i_callback_top_of_page   = 'ZF_TOP_OF_PAGE'
+*    i_callback_pf_status_set = 'ZF_STATUS'
+    i_callback_user_command  = 'ZF_USER_COMMAND'
+    it_fieldcat              = gw_fieldcat[]
+    is_layout                = gs_layout
+    it_sort                  = gw_sort[]
+    i_default                = 'X'
+    i_save                   = 'A'
+    is_variant               = gs_variante
+    is_print                 = gs_print
+  TABLES
+    t_outtab                 = gw_log
+  EXCEPTIONS
+    program_error            = 1
+    OTHERS                   = 2.
+
+ENDFORM.                    " ZF_EXECUTA_ALV
+
+*----------------------------------------------------------------------*
+*       Form zf_user_command                                           *
+*----------------------------------------------------------------------*
+*       Tratamento das opções do usuário. Por exemplo um Drill-down ou *
+*       algum botão que você inseriu ou alterou. O importante é        *
+*       conhecer os parâmetros que o form recebe                       *
+*----------------------------------------------------------------------*
+FORM zf_user_command USING ucomm    LIKE sy-ucomm
+                           selfield TYPE slis_selfield.
+
+  DATA: ls_log LIKE LINE OF gw_log.
+
+* Para um drill down a partir de um registro
+  IF NOT selfield-tabindex = 0.
+    READ TABLE gw_log INTO ls_log INDEX selfield-tabindex.
+
+    CALL FUNCTION 'EDITOR_PROGRAM'
+      EXPORTING
+*       APPID             = '  '
+        display           = 'SHOW'
+*       FBNAME            = ' '
+        line              = ls_log-linha
+*       MESSAGE           = ' '
+*       OFFSET            = '00'
+        program           = ls_log-objeto
+*       TOPLINE           = '000000'
+*       VARIED            = ' '
+*       TRDIR_INF         = ' '
+*       STATUS            = ' '
+*     IMPORTING
+*       DYNPRO            =
+*       EVENT             =
+*       FCODE             =
+*       MODULE            =
+*       SUBRC             =
+     EXCEPTIONS
+       application       = 1
+       OTHERS            = 2.
+
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+
+
+  ELSE.
+
+*    message 'Clicar em linha válida'(001) type 'E'.
+
+  ENDIF.
+
+ENDFORM.                    "zf_user_command
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_OBTER_FUNCOES
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_obter_funcoes .
+
+  DATA: r_devclass    TYPE RANGE OF devclass,
+        r_fugr        TYPE RANGE OF progname,
+        ls_r_devclass LIKE LINE OF r_devclass,
+        lw_funcao     TYPE STANDARD TABLE OF y_tfdir,
+        lw_d010inc    TYPE SORTED TABLE OF d010inc
+                      WITH UNIQUE KEY master include,
+        ls_funcao     TYPE y_tfdir,
+        r_prog        TYPE RANGE OF progname,
+        li_cont       TYPE i,
+        ls_r_prog     LIKE LINE OF r_prog,
+        ls_r_fugr     LIKE LINE OF r_fugr.
+
+  FIELD-SYMBOLS: <tadir> TYPE tadir,
+                 <fs_d010inc> TYPE d010inc.
+
+* Filtrar pacotes
+  ls_r_devclass-option = 'CP'.
+  ls_r_devclass-sign   = 'I'.
+  ls_r_devclass-low    = 'Z*'.
+  APPEND ls_r_devclass TO r_devclass. CLEAR ls_r_devclass.
+
+  ls_r_devclass-option = 'CP'.
+  ls_r_devclass-sign   = 'I'.
+  ls_r_devclass-low    = 'Y*'.
+  APPEND ls_r_devclass TO r_devclass. CLEAR ls_r_devclass.
+
+* Inicializar variaveis
+  REFRESH: gw_tadir,
+           gw_trdir.
+
+* Selecionando objetos criados pelo cliente.
+  SELECT *
+  INTO TABLE gw_tadir
+  FROM tadir
+  WHERE pgmid    <> ''      AND
+        object   =  'FUGR'  AND
+        obj_name IN so_fugr AND
+        devclass IN r_devclass.
+
+  CHECK sy-subrc = 0.
+
+*   Classifica os objetos
+  SORT gw_tadir STABLE.
+
+
+  LOOP AT gw_tadir ASSIGNING <tadir>.
+
+    CONCATENATE 'SAPL' <tadir>-obj_name INTO ls_funcao-pname.
+    APPEND ls_funcao TO lw_funcao.
+    CLEAR  ls_funcao.
+
+  ENDLOOP.
+
+*** Selecionar os includes do grupo de função
+  SELECT *
+    INTO TABLE lw_d010inc
+    FROM d010inc
+    FOR ALL ENTRIES IN lw_funcao
+    WHERE master = lw_funcao-pname.
+
+  CHECK sy-subrc = 0.
+
+*** Excluir includes não necessários
+  DELETE lw_d010inc WHERE include NP 'LZ*U++'
+                      AND include NP 'LY*U++'.
+
+  delete lw_d010inc WHERE include cp '*XX'.
+
+  LOOP AT lw_d010inc ASSIGNING <fs_d010inc>.
+
+*** Montar nomes dos includes
+    gs_trdir-name = <fs_d010inc>-include.
+    APPEND gs_trdir TO gw_trdir.
+    CLEAR  gs_trdir.
+
+  ENDLOOP.
+
+ENDFORM.                    " ZF_OBTER_FUNCOES
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_OBTER_CLASSES
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_obter_classes .
+  DATA: r_devclass    TYPE RANGE OF devclass,
+        r_fugr        TYPE RANGE OF progname,
+        ls_r_devclass LIKE LINE OF r_devclass,
+        r_prog        TYPE RANGE OF progname,
+        ls_r_prog     LIKE LINE OF r_prog,
+        ls_r_fugr     LIKE LINE OF r_fugr.
+
+  FIELD-SYMBOLS: <tadir> TYPE tadir,
+                 <trdir> TYPE trdir.
+
+* Filtrar pacotes
+  ls_r_devclass-option = 'CP'.
+  ls_r_devclass-sign   = 'I'.
+  ls_r_devclass-low    = 'Z*'.
+  APPEND ls_r_devclass TO r_devclass. CLEAR ls_r_devclass.
+
+  ls_r_devclass-option = 'CP'.
+  ls_r_devclass-sign   = 'I'.
+  ls_r_devclass-low    = 'Y*'.
+  APPEND ls_r_devclass TO r_devclass. CLEAR ls_r_devclass.
+
+* Inicializar variaveis
+  REFRESH: gw_tadir,
+           gw_trdir.
+
+* Selecionando objetos criados pelo cliente.
+  SELECT *
+  INTO TABLE gw_tadir
+  FROM tadir
+  WHERE pgmid    <> ''       AND
+        object   =  'CLAS'   AND
+        obj_name IN so_class AND
+        devclass IN r_devclass.
+
+  IF sy-subrc = 0.
+
+*   Classifica os objetos
+    SORT gw_tadir STABLE.
+
+    LOOP AT gw_tadir ASSIGNING <tadir>.
+
+*     Filtrar classes
+      ls_r_prog-option = 'CP'.
+      ls_r_prog-sign   = 'I'.
+      CONCATENATE <tadir>-obj_name '*' INTO ls_r_prog-low.
+      APPEND ls_r_prog TO r_prog. CLEAR ls_r_prog.
+
+    ENDLOOP.
+
+*   Acessando includes (dentre estes os includes dos métodos)
+    SELECT *
+    INTO TABLE gw_trdir
+    FROM trdir
+    WHERE name IN r_prog.
+
+*   Classifica os objetos
+    IF sy-subrc = 0.
+
+      SORT gw_trdir STABLE.
+
+*     Mantem somente os métodos
+      LOOP AT gw_trdir ASSIGNING <trdir>.
+        IF <trdir>-name+30(2) <> 'CM'.
+          DELETE gw_trdir.
+        ENDIF.
+      ENDLOOP.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " ZF_OBTER_CLASSES
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_OBTER_EXIT
+*&---------------------------------------------------------------------*
+*       Encontrar exits
+*----------------------------------------------------------------------*
+FORM zf_obter_exit .
+
+  DATA: r_devclass    TYPE RANGE OF devclass,
+        r_fugr        TYPE RANGE OF progname,
+        ls_r_devclass LIKE LINE OF r_devclass,
+        r_prog        TYPE RANGE OF progname,
+        ls_r_prog     LIKE LINE OF r_prog,
+        ls_r_fugr     LIKE LINE OF r_fugr.
+
+*** Declaração de variaveis locais
+  DATA: lw_modsap        TYPE SORTED TABLE OF y_modsap
+                         WITH UNIQUE KEY member,
+        lw_tfdir         TYPE SORTED TABLE OF y_tfdir
+                         WITH UNIQUE KEY funcname,
+        lw_modact        TYPE STANDARD TABLE OF y_modact,
+        lw_d010inc       TYPE SORTED TABLE OF d010inc
+                         WITH UNIQUE KEY master include,
+        ls_incl_names    TYPE smod_names.
+
+  FIELD-SYMBOLS: <fs_d010inc> TYPE d010inc.
+
+*** Filtrar pacotes
+  ls_r_devclass-option = 'CP'.
+  ls_r_devclass-sign   = 'I'.
+  ls_r_devclass-low    = 'Z*'.
+  APPEND ls_r_devclass TO r_devclass. CLEAR ls_r_devclass.
+
+  ls_r_devclass-option = 'CP'.
+  ls_r_devclass-sign   = 'I'.
+  ls_r_devclass-low    = 'Y*'.
+  APPEND ls_r_devclass TO r_devclass. CLEAR ls_r_devclass.
+
+*** Inicializar variaveis
+  REFRESH: gw_tadir,
+           gw_trdir.
+
+*** Selecionando objetos criados pelo cliente.
+  REFRESH gw_tadir.
+  SELECT *
+  INTO TABLE gw_tadir
+  FROM tadir
+  WHERE pgmid    = 'R3TR'   AND
+        object   = 'CMOD'   AND
+        devclass IN r_devclass.
+
+*** Seleção das exits do sistema
+  CHECK sy-subrc = 0.
+
+*** Selecionar componentes de um projeto CMOD
+  SELECT name
+         member
+    INTO TABLE lw_modact
+    FROM modact
+    FOR ALL ENTRIES IN gw_tadir
+    WHERE name     =  gw_tadir-obj_name(8)
+      AND member   <> space
+      AND migrated <> 'X'.
+
+*** Selecionar exits
+  CHECK sy-subrc = 0.
+
+  SELECT DISTINCT name
+                  member
+    INTO TABLE lw_modsap
+    FROM modsap
+    FOR ALL ENTRIES IN lw_modact
+    WHERE name   = lw_modact-member(8)
+      AND typ    = 'E'
+      AND member IN so_exit.
+
+*** Verificar se as exits estão ativas no sistema
+  CHECK sy-subrc = 0.
+
+  SELECT funcname
+         pname
+         mand
+    INTO TABLE  lw_tfdir
+    FROM tfdir
+    FOR ALL ENTRIES IN lw_modsap
+    WHERE funcname = lw_modsap-member(30).
+
+*** Limitar apenas as exits ativas
+  DELETE lw_tfdir WHERE mand(1) <> 'C'.
+
+*** Localizar includes das exits
+  CHECK NOT lw_tfdir[] IS INITIAL.
+
+*** Selecionar os includes dos exits
+  SELECT *
+    INTO TABLE lw_d010inc
+    FROM d010inc
+    FOR ALL ENTRIES IN lw_tfdir
+    WHERE master = lw_tfdir-pname.
+
+*** Excluir o que não for include Z
+  DELETE lw_d010inc WHERE include NP 'Z*U++'
+                      AND include NP 'Y*U++'.
+
+  delete lw_d010inc WHERE include cp '*XX'.
+
+  LOOP AT lw_d010inc ASSIGNING <fs_d010inc>.
+
+*** Montar nomes dos includes
+    gs_trdir-name = <fs_d010inc>-include.
+    APPEND gs_trdir TO gw_trdir.
+    CLEAR  gs_trdir.
+
+  ENDLOOP.
+
+*** Deletar registros duplicados caso existam
+  SORT gw_trdir BY name ASCENDING.
+  DELETE ADJACENT DUPLICATES FROM gw_trdir COMPARING name.
+
+ENDFORM.                    " ZF_OBTER_EXIT
+
+*&---------------------------------------------------------------------*
+*&      Form  zf_incluir_objetos_request
+*&---------------------------------------------------------------------*
+*       Incluir objetos em request para analise na SCII
+*----------------------------------------------------------------------*
+FORM zf_incluir_objetos_request.
+
+  DATA: lw_e071 TYPE STANDARD TABLE OF e071,
+        ls_e071 TYPE e071.
+
+
+  FIELD-SYMBOLS: <trdir> TYPE trdir.
+
+*** Ver todos os materiais
+
+*  LOOP AT gw_trdir ASSIGNING <trdir> FROM 1 TO 50.
+*
+*    REFRESH lw_e071.
+*
+*    ls_e071-pgmid     = 'R3TR'.
+*    ls_e071-object    = 'PROG'.
+*    ls_e071-obj_name = <trdir>-name.
+*    APPEND ls_e071 TO lw_e071.
+*    CLEAR  ls_e071-obj_name.
+*
+*    CALL FUNCTION 'TRINT_REQUEST_CHOICE'
+*         EXPORTING
+*              iv_suppress_dialog   = 'X'
+*              iv_request           = 'DS0K9A1YMS'
+*         TABLES
+*              it_e071              = lw_e071
+*         EXCEPTIONS
+*              invalid_request      = 1
+*              invalid_request_type = 2
+*              user_not_owner       = 3
+*              no_objects_appended  = 4
+*              enqueue_error        = 5
+*              cancelled_by_user    = 6
+*              recursive_call       = 7
+*              OTHERS               = 8.
+*
+*
+*  ENDLOOP.
+
+
+ENDFORM.                    " zf_incluir_objetos_request
